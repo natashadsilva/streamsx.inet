@@ -8,4 +8,3 @@ namespace com.ibm.streamsx.inet.http;
  *  * dataSize - Size of the data field in bytes
  */
 type HTTPResponse = rstring data, rstring errorMessage, int32 responseCode, int32 dataSize;
-		

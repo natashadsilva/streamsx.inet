@@ -28,10 +28,10 @@ SPL_LINK_OPTIONS = $(shell $(SPL_PKGCFG) --libs $(SPL_PKG))
 # Folders
 # -----------------------------------------------------------------------------
 TRG := .
-INC:= $(TRG)/cpp/include
+INC:= $(TRG)/include
 LIB := $(TRG)/lib
 OBJ := $(TRG)/cpp/bin
-SRC := $(TRG)/cpp/src
+SRC := $(TRG)/src
 
 # -----------------------------------------------------------------------------
 # phony targets are targets being not in the filesystem but are always "active"
@@ -55,7 +55,7 @@ OBJECTS  = $(patsubst $(SRC)/%.cpp,$(OBJ)/%.o,$(SOURCES))
 CXXFLAGS := -O3 $(SPL_COMPILE_OPTIONS) -Werror -Wall
 LINKFLAGS := -shared $(SPL_LINK_OPTIONS)
 
-all: clean build clean_objects
+all: clean build
 
 build: $(LIBRARY)
 
@@ -88,4 +88,3 @@ help:
 	@echo "clean: remove library and object files"
 	@echo "build: build the library"
 	@echo "clean_objects: remove the object files"
-	

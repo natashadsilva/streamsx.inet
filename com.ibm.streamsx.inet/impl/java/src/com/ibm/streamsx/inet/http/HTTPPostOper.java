@@ -43,7 +43,7 @@ import com.ibm.streams.operator.model.OutputPorts;
 import com.ibm.streams.operator.model.Parameter;
 import com.ibm.streams.operator.model.PrimitiveOperator;
 import com.ibm.streams.operator.state.ConsistentRegionContext;
-import com.ibm.streamsx.inet.http.HTTPRequest.RequestType;
+import com.ibm.streamsx.inet.messages.Messages;
 
 @InputPorts(@InputPortSet(cardinality=1, 
 			description="By default, all attributes of the input stream are sent as POST data to the specified HTTP server."))
@@ -130,6 +130,7 @@ public class HTTPPostOper extends AbstractOperator
 	private boolean acceptAllCertificates = false;
         private Set<String>includeAttributesSet = null;   // attributes to include in the http request
 	
+	private String keyStoreFile = null, keyStorePassword = null;
 	/**
 	 * How the input tuple is processed.
 	 */
@@ -157,6 +158,14 @@ public class HTTPPostOper extends AbstractOperator
 	@Parameter(optional=true, description="Properties to override those in the authentication file.")
 	public void setAuthenticationProperty(List<String> val) {
 		authenticationProperties.addAll(val);
+	}
+	@Parameter(optional=true, description="Path to .jks file used for server and client authentication")
+	public void setKeyStoreFile(String val){
+		keyStoreFile = val;
+	}
+	@Parameter(optional=true, description="Password for the keyStore and the keys it contains")
+	public void setKeyStorePassword(String val){
+		keyStorePassword = val;
 	}
 	@Parameter(optional=true, description="Maximum number of retries in case of failures/disconnects.")
 	public void setMaxRetries(int val) {
@@ -219,10 +228,24 @@ public class HTTPPostOper extends AbstractOperator
 	    if (headers.size() == 0) return;
 	    header = headers.get(0);
 	    if (header.equals(MIME_FORM) || header.equals(MIME_JSON)) return;
-	    checker.setInvalidContext( HTTPPostOper.OPER_NAME + " Invalid HeaderContextType: " + header + " when used with include.",
-					new String[] {});
-        }
-
+	    checker.setInvalidContext(Messages.getString("PARAM_HEADER_CHECK1"), new String[] {OPER_NAME, header});
+    }
+        
+    @ContextCheck(compile=true)
+    public static void checkKeyStoreParameters(OperatorContextChecker checker){
+    	OperatorContext operatorContext = checker.getOperatorContext();
+    	Set<String>parameterNames = operatorContext.getParameterNames();
+    	
+    	boolean hasFile = parameterNames.contains("keyStoreFile");
+    	boolean hasPassword = parameterNames.contains("keyStorePassword");
+    	
+    	//The pair of these parameters is optional, we either need both to be present or neither of them
+    	if(hasFile ^ hasPassword)
+    	{
+    		checker.setInvalidContext(Messages.getString("PARAM_TRUST_STORE_CHECK2"), new String[] {OPER_NAME});
+    	}
+    }
+        
 	//consistent region checks
 	@ContextCheck(compile = true)
 	public static void checkInConsistentRegion(OperatorContextChecker checker) {
@@ -230,11 +253,9 @@ public class HTTPPostOper extends AbstractOperator
 				checker.getOperatorContext().getOptionalContext(ConsistentRegionContext.class);
 		
 		if(consistentRegionContext != null && consistentRegionContext.isStartOfRegion()) {
-			checker.setInvalidContext( HTTPPostOper.OPER_NAME + " operator cannot be placed at the start of a consistent region.", 
-					new String[] {});
+			checker.setInvalidContext(Messages.getString("CONSISTENT_CHECK_1"), new String[] {HTTPPostOper.OPER_NAME});
 		}
 	}
-
 	
 	@Override
 	public void initialize(OperatorContext op) throws Exception  {
@@ -246,7 +267,9 @@ public class HTTPPostOper extends AbstractOperator
         }
         URI baseConfigURI = op.getPE().getApplicationDirectory().toURI();
 		auth = AuthHelper.getAuthenticator(authenticationType, PathConversionHelper.convertToAbsPath(baseConfigURI, authenticationFile), authenticationProperties);
-
+		
+		keyStoreFile = PathConversionHelper.convertToAbsPath(baseConfigURI, keyStoreFile);
+		
 		rc = new RetryController(maxRetries, retryDelay);
 		hasOutputPort = op.getStreamingOutputs().size() == 1;
 		
@@ -304,9 +327,13 @@ public class HTTPPostOper extends AbstractOperator
 
 		HTTPRequest req = new HTTPRequest(url);
 		req.setHeader("Content-Type", headerContentType);
-		req.setType(RequestType.POST);
+		req.setMethod(HTTPMethod.POST);
 		req.setInsecure(acceptAllCertificates);
 		req.setConnectionTimeout(connectionTimeout);
+		
+		if(keyStoreFile != null)
+			req.initializeKeyStore(keyStoreFile, keyStorePassword);
+		
 		trace.log(TraceLevel.TRACE, "Set connectionTimeout: " + connectionTimeout);					
 
 		switch (processType) {
@@ -377,9 +404,10 @@ public class HTTPPostOper extends AbstractOperator
 					trace.log(TraceLevel.TRACE, "Sending request: " + req.toString());
 				
 				resp = req.sendRequest(auth);
-				
 				if(trace.isLoggable(TraceLevel.TRACE))
+				{
 					trace.log(TraceLevel.TRACE, "Got response: " + resp.toString());
+				}
 				rc.readSuccess();
 				break;
 			}catch(Exception e) {
@@ -417,8 +445,9 @@ public class HTTPPostOper extends AbstractOperator
 			if(trace.isLoggable(TraceLevel.DEBUG))
 				trace.log(TraceLevel.DEBUG, "Response: " + resp.toString());
 			
-			if(resp.getErrorStreamData()!=null)
+			if(resp.getErrorStreamData()!=null){
 				otup.setString("errorMessage", resp.getErrorStreamData());
+			}
 	
 			if(resp.getOutputData() != null) {
 				otup.setString("data", resp.getOutputData());
@@ -462,7 +491,8 @@ public class HTTPPostOper extends AbstractOperator
 			" will be retried on the current thread and may temporarily block any additional tuples that arrive on the input port." +
 			" By default, the data is sent in application/x-www-form-urlencoded UTF-8 encoded format."  +
 	    CONSISTENT_CUT_INTRODUCER +
-			"\\nThis operator cannot be placed at the start of a consistent region."
+			"\\nThis operator cannot be placed at the start of a consistent region." +
+			"\\n\\n**This operator will be deprecated.** Use HTTPRequest operator instead."
 		;
 
 }
